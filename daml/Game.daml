@@ -1,0 +1,137 @@
+module Game where
+
+type GameId = ContractId Game
+type GameTransferProposalId = ContractId GameTransferProposal
+type FinishedPlayingId = ContractId FinishedPlaying
+type GameSessionTimeId = ContractId GameSessionTime
+
+template GameSessionTime
+  with
+    owner : Party
+    hoursPlayed : Int
+    gameName : Text
+    secondary : Party
+  where
+    signatory owner
+    observer owner, secondary
+    nonconsuming choice CheckArchivedTime : Int
+      controller secondary
+      do 
+        return(this.hoursPlayed)
+    nonconsuming choice SplitGameTime : (GameSessionTimeId, GameSessionTimeId)
+      with
+        hoursSplit : Int
+        secondGameName : Text
+      controller owner
+      do 
+        assertMsg "SplitHours must leave two positive values" (this.hoursPlayed - hoursSplit >= 0)
+        archive self
+        splitGame <- create this with 
+            owner = this.owner
+            hoursPlayed = hoursSplit
+            gameName = secondGameName
+            secondary = this.secondary
+
+        restGame <- create this with 
+            owner = this.owner
+            hoursPlayed = this.hoursPlayed - hoursSplit
+            gameName = this.gameName
+            secondary = this.secondary
+        return(splitGame, restGame)
+
+template FinishedPlaying
+  with
+    game : Game
+    owner : Party
+  where
+    signatory (signatory game)
+    observer (observer game), owner
+    choice GetGame
+      : GameId
+      with 
+        owner : Party
+      controller owner
+      do
+        create game
+
+template Game
+  with
+    purchaser : Party
+    owner  : Party
+    name    : Text
+    level   : Int
+    totalTimePlayed : Int
+  where
+    ensure name /= "" && totalTimePlayed >= 0
+    signatory owner
+    observer owner
+    choice LogPlayTime : GameId
+      with
+        levelsCompleted : Int
+        hoursPlayed : Int
+      controller owner
+      do 
+        assertMsg "Hours played has to be zero or positive" (hoursPlayed >= 0)
+        assertMsg "Levels completed has to be zero or positive" (levelsCompleted >= 0)
+        create this with
+           level = levelsCompleted + level
+           totalTimePlayed = hoursPlayed + totalTimePlayed
+    nonconsuming choice LogGameTime : GameSessionTimeId
+      with
+        secondary : Party
+      controller owner
+      do 
+        create GameSessionTime with
+          owner = this.owner
+          hoursPlayed = this.totalTimePlayed
+          gameName = this.name
+          secondary = secondary
+    choice CheckGamePlayConsume : Int
+      controller owner
+      do 
+        return(this.totalTimePlayed)
+    choice ProposeTransfer : GameTransferProposalId
+      with
+        newOwner : Party
+      controller owner
+      do
+        assertMsg "newOwner cannot be equal to owner." (owner /= newOwner)
+        create GameTransferProposal with
+          game = this
+          newOwner
+    choice FinishedPlayingGame : FinishedPlayingId
+      with
+        owner : Party
+      controller owner
+      do
+        assertMsg "newOwner has to be current owner." (owner == owner)
+        create FinishedPlaying with
+          game = this
+          owner
+
+template GameTransferProposal
+  with
+    game : Game
+    newOwner : Party
+  where
+    signatory game.owner
+    observer (observer game), newOwner
+
+    choice GameTransferProposal_Cancel
+      : GameId
+      controller game.owner
+      do
+        create game
+
+    choice GameTransferProposal_Reject
+      : GameId
+      controller newOwner
+      do
+        create game
+
+    choice GameTransferProposal_Accept
+      : GameId
+      controller newOwner
+      do
+        create game with
+          owner = newOwner
