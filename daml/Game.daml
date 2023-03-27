@@ -10,6 +10,7 @@ template FinishedPlaying
     game : Game
     owner : Party
   where
+    ensure owner == game.owner
     signatory (signatory game)
     observer (observer game), owner
     choice GetGame : GameId
@@ -28,27 +29,29 @@ template Game
     ensure name /= "" && totalTimePlayed >= 0
     signatory owner
     observer purchaser
-    choice LogPlayTime : GameId
+    nonconsuming choice LogPlayTime : (GameSessionTimeId, GameId)
       with
         levelsCompleted : Int
         hoursPlayed : Int
+        secondary : Party
       controller owner
       do 
         assertMsg "Hours played has to be zero or positive" (hoursPlayed >= 0)
         assertMsg "Levels completed has to be zero or positive" (levelsCompleted >= 0)
-        create this with
-           level = levelsCompleted + level
-           totalTimePlayed = hoursPlayed + totalTimePlayed
-    nonconsuming choice LogSessionTime : GameSessionTimeId
-      with
-        secondary : Party
-      controller owner
-      do 
-        create GameSessionTime with
+
+        sessionid <- create GameSessionTime with
           owner = this.owner
-          hoursPlayed = this.totalTimePlayed
+          hoursPlayed = hoursPlayed
           gameName = this.name
           secondary = secondary
+
+        archive self
+
+        gameid <- create this with
+           level = levelsCompleted + level
+           totalTimePlayed = hoursPlayed + totalTimePlayed
+        
+        return(sessionid, gameid)
     choice ProposeTransfer : GameTransferProposalId
       with
         newOwner : Party
@@ -78,10 +81,17 @@ template GameSessionTime
       controller secondary
       do 
         return(this.hoursPlayed)
+    choice AddSessionTime : GameSessionTimeId
+      with
+        newHours : Int
+      controller owner
+      do
+        create this with
+          hoursPlayed = hoursPlayed + newHours
+
     nonconsuming choice SplitGameTime : (GameSessionTimeId, GameSessionTimeId)
       with
         hoursSplit : Int
-        secondGameName : Text
       controller owner
       do 
         assertMsg "SplitHours must leave two positive values" (this.hoursPlayed - hoursSplit >= 0)
@@ -89,7 +99,7 @@ template GameSessionTime
         splitGame <- create this with 
             owner = this.owner
             hoursPlayed = hoursSplit
-            gameName = secondGameName
+            gameName = this.gameName
             secondary = this.secondary
 
         restGame <- create this with 

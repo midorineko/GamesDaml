@@ -22,20 +22,21 @@ setup = script do
         level = 0
         totalTimePlayed = 0
 
+
     -- log some hours
-    stevensPlayedGame <- submit steven do 
-      exerciseCmd stevensGame LogPlayTime with levelsCompleted = 2, hoursPlayed = 5
+    (stevensPlayedSession, stevensPlayedGame) <- submit steven do 
+      exerciseCmd stevensGame LogPlayTime with levelsCompleted = 2, hoursPlayed = 5, secondary = steven
 
     -- propose transfer (GameTransferProposalID would break if stopped here since script expect GameId)
     stevenToamani <- submit steven do 
       exerciseCmd stevensPlayedGame ProposeTransfer with newOwner = amani
 
     -- accept transfer (GameId accept returns a game id)
-    amanisGame <- submit amani do
+    amanisPokemonGame <- submit amani do
       exerciseCmd stevenToamani GameTransferProposal_Accept
 
     -- a second game is created
-    thps <- submit amani do
+    amanisthps <- submit amani do
       createCmd Game with
         purchaser = amani
         owner  = amani
@@ -44,28 +45,28 @@ setup = script do
         totalTimePlayed = 0
 
     --log thps game time
-    amaniPlaysThps <- submit amani do
-      exerciseCmd thps LogPlayTime with levelsCompleted = 8, hoursPlayed = 19
+    (amaniPlaysSession, amaniPlaysThps) <- submit amani do
+      exerciseCmd amanisthps LogPlayTime with levelsCompleted = 8, hoursPlayed = 19, secondary = steven
+
+    submit amani do
+      exerciseCmd amaniPlaysSession SplitGameTime with hoursSplit=7
 
     --amani finishes playing that (set up so the Finished Playing Game has a contract)
     submit amani do
       exerciseCmd amaniPlaysThps FinishedPlayingGame
 
     -- log game time
-    amanisPlaytime <- submit amani do
-      exerciseCmd amanisGame LogPlayTime with levelsCompleted = 3, hoursPlayed = 5
+    (amanisPokemonSession, amanisPokemonGame) <- submit amani do
+      exerciseCmd amanisPokemonGame LogPlayTime with levelsCompleted = 3, hoursPlayed = 5, secondary = steven
 
     -- amani submits to games played
-    amanisPlayedgames <- submit amani do 
-      exerciseCmd amanisPlaytime FinishedPlayingGame
+    amanisFinishedPokemon <- submit amani do 
+      exerciseCmd amanisPokemonGame FinishedPlayingGame
 
-    -- amani pulls his gabe back
-    amaniStartedAgain <- submit amani do
-      exerciseCmd amanisPlayedgames GetGame
-
-    -- amani logs hours in game
+    -- amani pulls his game back
     submit amani do
-      exerciseCmd amaniStartedAgain LogPlayTime with levelsCompleted = 5, hoursPlayed = 5
+      exerciseCmd amanisFinishedPokemon GetGame
+    
 
 --GameSessionTimeId Testing
 logSessionTime : Script GameSessionTimeId
@@ -82,28 +83,28 @@ logSessionTime = script do
       level = 10
       totalTimePlayed = 100
 
-  stevenLog <- submit steven do
-    exerciseCmd stevensGame LogSessionTime with secondary = amani
+  (stevensSession, stevensPlaytime) <- submit steven do
+    exerciseCmd stevensGame LogPlayTime with levelsCompleted = 3, hoursPlayed = 5, secondary = amani
 
-  stevensPlaytime <- submit steven do
-    exerciseCmd stevensGame LogPlayTime with levelsCompleted = 3, hoursPlayed = 5
-
-  stevenLog <- submit steven do
-    exerciseCmd stevensPlaytime LogSessionTime with secondary = amani
+  submitMustFail fish do
+    exerciseCmd stevensSession CheckSessionTime
 
   amaniChecksStevensTime <- submit amani do
-    exerciseCmd stevenLog CheckSessionTime
+    exerciseCmd stevensSession CheckSessionTime
 
-  assert (amaniChecksStevensTime == 105)
+  assert (amaniChecksStevensTime == 5)
+
+  submitMustFail amani do
+    exerciseCmd stevensSession SplitGameTime with hoursSplit = 3
 
   (split1, split2) <- submit steven do
-    exerciseCmd stevenLog SplitGameTime with hoursSplit = 55, secondGameName = "Tony Hawk Pro Skater"
+    exerciseCmd stevensSession SplitGameTime with hoursSplit = 3
 
   Some c <- queryContractId steven split1
-  assert (c.hoursPlayed == 55)
+  assert (c.hoursPlayed == 3)
 
   submit steven do
-    exerciseCmd stevensPlaytime LogSessionTime with secondary = amani
+    exerciseCmd split2 AddSessionTime with newHours = 10
 
 
 nonConsumingChoiceCheck : Script Int
@@ -120,13 +121,13 @@ nonConsumingChoiceCheck = script do
   Some c <- queryContractId steven stevensGame
   assert (c.totalTimePlayed == 100)
 
-  stevenLog <- submit steven do
-    exerciseCmd stevensGame LogSessionTime with secondary = steven
+  (stevenSession, stevenGame) <- submit steven do
+    exerciseCmd stevensGame LogPlayTime with levelsCompleted = 10, hoursPlayed=15, secondary = steven
 
   submit steven do
-    exerciseCmd stevenLog CheckSessionTime
+    exerciseCmd stevenSession CheckSessionTime
 
-simplePlayGames : Script GameId
+simplePlayGames : Script (GameSessionTimeId, GameId)
 simplePlayGames = script do
   steven <- allocatePartyWithHint "Steven" (PartyIdHint "Steven")
 
@@ -138,14 +139,14 @@ simplePlayGames = script do
       level = 0
       totalTimePlayed = 0
 
-  stevensPlayedGame <- submit steven do 
-    exerciseCmd stevensGame LogPlayTime with levelsCompleted = 2, hoursPlayed = 5
+  (stevensPlayedSession, stevensPlayedGame) <- submit steven do 
+    exerciseCmd stevensGame LogPlayTime with levelsCompleted = 2, hoursPlayed = 5, secondary=steven
 
-  stevensPlayedMoreGame <- submit steven do 
-    exerciseCmd stevensPlayedGame LogPlayTime with levelsCompleted = 2, hoursPlayed = 5
+  (stevensPlayedMoreSession, stevensPlayedMoreGame) <- submit steven do 
+    exerciseCmd stevensPlayedGame LogPlayTime with levelsCompleted = 2, hoursPlayed = 5, secondary = steven
 
   submit steven do 
-    exerciseCmd stevensPlayedMoreGame LogPlayTime with levelsCompleted = 2, hoursPlayed = 5
+    exerciseCmd stevensPlayedMoreGame LogPlayTime with levelsCompleted = 2, hoursPlayed = 5, secondary = steven
 
 --GameTransferProposalId Testing
 transferOwnership : Script GameTransferProposalId
@@ -162,8 +163,8 @@ transferOwnership = script do
         level = 0
         totalTimePlayed = 0
 
-    stevensPlayedGame <- submit steven do 
-      exerciseCmd stevensGame LogPlayTime with levelsCompleted = 2, hoursPlayed = 5
+    (stevensPlayedSession, stevensPlayedGame) <- submit steven do 
+      exerciseCmd stevensGame LogPlayTime with levelsCompleted = 2, hoursPlayed = 5, secondary = amani
       
     stevenToamani <- submit steven do 
       exerciseCmd stevensPlayedGame ProposeTransfer with newOwner = amani
@@ -171,8 +172,11 @@ transferOwnership = script do
     amanisGame <- submit amani do
       exerciseCmd stevenToamani GameTransferProposal_Accept
 
-    amaniPlays <- submit amani do
-      exerciseCmd amanisGame LogPlayTime with levelsCompleted = 5, hoursPlayed = 10
+    (amaniPlaySession, amaniPlays) <- submit amani do
+      exerciseCmd amanisGame LogPlayTime with levelsCompleted = 5, hoursPlayed = 10, secondary = steven
+
+    Some c <- queryContractId steven stevensPlayedSession
+    assert (c.hoursPlayed == 5)
 
     propsedTransfer <- submit amani do 
       exerciseCmd amaniPlays ProposeTransfer with newOwner = steven
@@ -205,14 +209,14 @@ loggingFinishedPlaying = script do
         level = 0
         totalTimePlayed = 0
 
-    stevensPlayedGame <- submit steven do 
-      exerciseCmd pokemon LogPlayTime with levelsCompleted = 2, hoursPlayed = 5
+    (stevensPlayedSession, stevensPlayedGame) <- submit steven do 
+      exerciseCmd pokemon LogPlayTime with levelsCompleted = 2, hoursPlayed = 5, secondary = steven
 
-    amaniPlay <- submit amani do
-      exerciseCmd thps LogPlayTime with levelsCompleted = 5, hoursPlayed = 10
+    (amaniPlaySession, amaniPlayGame) <- submit amani do
+      exerciseCmd thps LogPlayTime with levelsCompleted = 5, hoursPlayed = 10, secondary = steven
     
     submit amani do
-      exerciseCmd amaniPlay FinishedPlayingGame
+      exerciseCmd amaniPlayGame FinishedPlayingGame
       
     stevenFinishedPlaying <- submit steven do 
       exerciseCmd stevensPlayedGame FinishedPlayingGame
@@ -226,14 +230,14 @@ loggingFinishedPlaying = script do
     amanisAccpetsGame <- submit amani do
       exerciseCmd stevenToamani GameTransferProposal_Accept
 
-    amanisGame <- submit amani do
-      exerciseCmd amanisAccpetsGame LogPlayTime with levelsCompleted = 5, hoursPlayed = 10
+    (amanisSession, amanisGame) <- submit amani do
+      exerciseCmd amanisAccpetsGame LogPlayTime with levelsCompleted = 5, hoursPlayed = 10, secondary = steven
 
     submit amani do 
       exerciseCmd amanisGame FinishedPlayingGame
 
 -- Must Fail Testing
-sadPaths : Script (GameSessionTimeId, GameSessionTimeId)
+sadPaths : Script ()
 sadPaths = script do
     steven <- allocatePartyWithHint "Steven" (PartyIdHint "Steven")
     amani <- allocatePartyWithHint "Amani" (PartyIdHint "Amani")
@@ -247,7 +251,7 @@ sadPaths = script do
         totalTimePlayed = 0
 
     submitMustFail steven do 
-      exerciseCmd stevensGame LogPlayTime with hoursPlayed = -10, levelsCompleted= 5
+      exerciseCmd stevensGame LogPlayTime with hoursPlayed = -10, levelsCompleted= 5, secondary = steven
 
     submitMustFail amani do
       exerciseCmd stevensGame FinishedPlayingGame
@@ -255,17 +259,44 @@ sadPaths = script do
     submitMustFail steven do
       exerciseCmd stevensGame ProposeTransfer with newOwner = steven
 
-    stevenPlays <- submit steven do 
-      exerciseCmd stevensGame LogPlayTime with hoursPlayed = 10, levelsCompleted = 5
-
-    stevenSessionTime <- submit steven do
-      exerciseCmd stevenPlays LogSessionTime with secondary = steven
+    (stevenPlaySession, stevenPlayGame) <- submit steven do 
+      exerciseCmd stevensGame LogPlayTime with hoursPlayed = 10, levelsCompleted = 5, secondary = amani
 
     submitMustFail steven do
-      exerciseCmd stevenSessionTime SplitGameTime with hoursSplit = 100, secondGameName = "Pokemon"
+      exerciseCmd stevenPlaySession SplitGameTime with hoursSplit = 100
 
     submit steven do
-      exerciseCmd stevenSessionTime SplitGameTime with hoursSplit = 2, secondGameName = "Pokemon"
+      exerciseCmd stevenPlaySession SplitGameTime with hoursSplit = 2
+
+    pure()
+
+newOwner : Script ()
+newOwner = script do
+    steven <- allocatePartyWithHint "Steven" (PartyIdHint "Steven")
+    amani <- allocatePartyWithHint "Amani" (PartyIdHint "Amani")
+
+    submitMustFail steven do
+      createCmd FinishedPlaying with
+        game = Game with
+          purchaser = steven
+          owner  = steven
+          name    = "Pokemon"
+          level = 0
+          totalTimePlayed = 0
+        owner = amani
+
+    submit steven do
+      createCmd FinishedPlaying with
+        game = Game with
+          purchaser = steven
+          owner  = steven
+          name    = "Pokemon"
+          level = 0
+          totalTimePlayed = 0
+        owner = steven
+
+    pure()
+
 
 
     
